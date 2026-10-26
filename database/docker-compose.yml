@@ -1,0 +1,22 @@
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: rentflow-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: rentflow
+      POSTGRES_USER: rentflow_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD before starting Compose}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - rentflow_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rentflow_user -d rentflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  rentflow_postgres_data:

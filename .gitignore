@@ -1,0 +1,36 @@
+﻿# Secrets and environment configuration
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Dependencies and generated builds
+**/node_modules/
+**/target/
+**/build/
+**/dist/
+**/.next/
+**/coverage/
+
+# IDE and operating-system files
+**/.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local backups and temporary output
+**/*backup*/
+**/*.bak
+**/*.bak-*
+backend/rentflow-output.txt
+
+# Private keys and local certificates
+*.pem
+*.key
+*.p12
+*.pfx
