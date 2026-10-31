@@ -1,0 +1,64 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: rentflow-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-rentflow}
+      POSTGRES_USER: ${DB_USERNAME:-rentflow_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-rentflow_pass}
+    ports:
+      - "${HOST_DB_PORT:-5433}:5432"
+    volumes:
+      - rentflow_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-rentflow_user} -d ${DB_NAME:-rentflow}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - rentflow-net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rentflow-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-rentflow}
+      DB_USERNAME: ${DB_USERNAME:-rentflow_user}
+      DB_PASSWORD: ${DB_PASSWORD:-rentflow_pass}
+      JWT_SECRET: ${JWT_SECRET:-dGVzdC1zZWNyZXQta2V5LWZvci1yZW50Zmxvdy1kZXYtb25seS0xMjM0NTY3ODkw}
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep UP || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    networks:
+      - rentflow-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: rentflow-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+    networks:
+      - rentflow-net
+
+networks:
+  rentflow-net:
+    driver: bridge
+
+volumes:
+  rentflow_postgres_data:
