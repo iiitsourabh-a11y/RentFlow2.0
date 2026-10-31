@@ -185,13 +185,30 @@ class PropertyControllerIT {
                     .content(secondProperty))
                 .andExpect(status().isCreated());
 
-            // List all (authenticated – required by current security config)
+            // List all (authenticated)
             mvc.perform(get("/api/v1/properties")
                     .header("Authorization", "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content").isArray())
                 .andExpect(jsonPath("$.content.length()").value(2))
                 .andExpect(jsonPath("$.totalElements").value(2));
+        }
+
+        @Test
+        @DisplayName("anonymous user can list properties without auth")
+        void anonymousUserCanListProperties() throws Exception {
+            String token = registerAndLogin("Public Owner", "public@test.com", "OWNER");
+
+            mvc.perform(post("/api/v1/properties")
+                    .header("Authorization", "Bearer " + token)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(VALID_PROPERTY))
+                .andExpect(status().isCreated());
+
+            mvc.perform(get("/api/v1/properties"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isArray())
+                .andExpect(jsonPath("$.content.length()").value(1));
         }
 
         @Test
@@ -241,11 +258,30 @@ class PropertyControllerIT {
             long id = objectMapper.readTree(
                 createResult.getResponse().getContentAsString()).get("id").asLong();
 
-            mvc.perform(get("/api/v1/properties/" + id)
-                    .header("Authorization", "Bearer " + token))
+            mvc.perform(get("/api/v1/properties/" + id))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(id))
                 .andExpect(jsonPath("$.title").value("Cozy Apartment"));
+        }
+
+        @Test
+        @DisplayName("anonymous user can get single property without auth")
+        void anonymousCanGetSingleProperty() throws Exception {
+            String token = registerAndLogin("Single Owner", "single@test.com", "OWNER");
+
+            MvcResult createResult = mvc.perform(post("/api/v1/properties")
+                    .header("Authorization", "Bearer " + token)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(VALID_PROPERTY))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+            long id = objectMapper.readTree(
+                createResult.getResponse().getContentAsString()).get("id").asLong();
+
+            mvc.perform(get("/api/v1/properties/" + id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(id));
         }
 
         @Test
