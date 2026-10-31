@@ -46,7 +46,7 @@ public class PropertyService {
     }
 
     private Property findProperty(Long id) {
-        return properties.findById(id)
+        return properties.findByIdWithOwner(id)
             .orElseThrow(() -> new ResponseStatusException(
                 HttpStatus.NOT_FOUND, "Property not found"));
     }

@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react'
 import axios from 'axios'
 import {
   Search, MapPin, Home, KeyRound, ArrowRight, ShieldCheck, X,
-  LoaderCircle, Bed, Bath, PlusCircle, LogOut, User as UserIcon, Trash2
+  LoaderCircle, Bed, Bath, PlusCircle, LogOut, User as UserIcon, Trash2,
+  MessageSquare, Check, Ban, Clock, Send
 } from 'lucide-react'
 import './App.css'
 
@@ -34,16 +35,34 @@ export type CurrentUser = {
   role: 'TENANT' | 'OWNER' | 'ADMIN'
 }
 
+export type Inquiry = {
+  id: number
+  propertyId: number
+  propertyTitle: string
+  tenantId: number
+  tenantName: string
+  tenantEmail: string
+  tenantPhone?: string
+  message: string
+  status: 'PENDING' | 'ACCEPTED' | 'REJECTED'
+  createdAt: string
+}
+
 function App() {
   const [query, setQuery] = useState('')
   const [minRent, setMinRent] = useState('')
   const [maxRent, setMaxRent] = useState('')
   const [status, setStatus] = useState('')
   const [properties, setProperties] = useState<Property[]>([])
-  const [modal, setModal] = useState<'login' | 'register' | 'createProperty' | null>(null)
+  const [modal, setModal] = useState<'login' | 'register' | 'createProperty' | 'inquiry' | 'viewInquiries' | null>(null)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
+
+  // Inquiry state
+  const [inquiries, setInquiries] = useState<Inquiry[]>([])
+  const [activePropertyForInquiry, setActivePropertyForInquiry] = useState<Property | null>(null)
+  const [inquiryText, setInquiryText] = useState('')
 
   const [authForm, setAuthForm] = useState({
     fullName: '', email: '', password: '', phone: '', role: 'TENANT',
@@ -77,7 +96,7 @@ function App() {
       const data = r.data
       const list: Property[] = Array.isArray(data) ? data : data.content || []
       setProperties(list)
-      const total = Array.isArray(data) ? data.length : (data.totalElements ?? list.length)
+      const total = Array.isArray(data) ? data.length : (data.page?.totalElements ?? data.totalElements ?? list.length)
       setStatus(`Showing ${total} available properties`)
     } catch (e: unknown) {
       const err = e as { response?: { status?: number; data?: { message?: string } } }
@@ -113,6 +132,7 @@ function App() {
     localStorage.removeItem('rentflow_token')
     delete api.defaults.headers.common.Authorization
     setCurrentUser(null)
+    setInquiries([])
     setMessage('Logged out successfully.')
   }
 
@@ -239,6 +259,70 @@ function App() {
     }
   }
 
+  // --- Inquiry Handlers ---
+  function openInquiryModal(prop: Property) {
+    if (!currentUser) {
+      setMessage('Please log in as a Tenant to contact property owners.')
+      setModal('login')
+      return
+    }
+    if (currentUser.role !== 'TENANT') {
+      setMessage('Only Tenant accounts can submit inquiries.')
+      return
+    }
+    setActivePropertyForInquiry(prop)
+    setInquiryText(`Hello, I am interested in renting "${prop.title}". Is it currently available for viewing?`)
+    setModal('inquiry')
+  }
+
+  async function submitInquiry(e: React.FormEvent) {
+    e.preventDefault()
+    if (!activePropertyForInquiry) return
+    setLoading(true)
+    try {
+      await api.post(`/api/v1/inquiries/property/${activePropertyForInquiry.id}`, {
+        message: inquiryText.trim(),
+      })
+      setMessage('Your inquiry has been sent to the property owner!')
+      setModal(null)
+      setInquiryText('')
+      setActivePropertyForInquiry(null)
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { message?: string } } }
+      setMessage(err.response?.data?.message || 'Failed to send inquiry.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function openInquiriesModal() {
+    if (!currentUser) return
+    setLoading(true)
+    setMessage('')
+    try {
+      const endpoint = currentUser.role === 'OWNER'
+        ? '/api/v1/inquiries/received'
+        : '/api/v1/inquiries/sent'
+      const r = await api.get(endpoint)
+      setInquiries(r.data || [])
+      setModal('viewInquiries')
+    } catch {
+      setMessage('Failed to load inquiries.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function updateInquiryStatus(id: number, newStatus: 'ACCEPTED' | 'REJECTED') {
+    try {
+      const r = await api.patch(`/api/v1/inquiries/${id}/status`, { status: newStatus })
+      setInquiries(prev => prev.map(inq => inq.id === id ? r.data : inq))
+      setMessage(`Inquiry ${newStatus.toLowerCase()} successfully.`)
+    } catch {
+      setMessage('Failed to update inquiry status.')
+    }
+  }
+
   return (
     <main>
       <nav className="navbar">
@@ -255,6 +339,9 @@ function App() {
               <span className="user-badge">
                 <UserIcon size={14}/> {currentUser.fullName} ({currentUser.role})
               </span>
+              <button className="btn-outline btn-sm" onClick={openInquiriesModal}>
+                <MessageSquare size={15}/> {currentUser.role === 'OWNER' ? 'Inquiries Received' : 'My Inquiries'}
+              </button>
               {currentUser.role === 'OWNER' && (
                 <button
                   className="btn-dark btn-sm"
@@ -371,17 +458,28 @@ function App() {
                     ${Number(p.rentAmount).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                     <small> / month</small>
                   </b>
-                  {currentUser && currentUser.userId === p.ownerId ? (
-                    <button
-                      className="btn-danger-icon"
-                      onClick={() => deleteProperty(p.id)}
-                      title="Delete your property listing"
-                    >
-                      <Trash2 size={16}/>
-                    </button>
-                  ) : (
-                    <span className="owner-tag">by {p.ownerName}</span>
-                  )}
+                  <div className="property-card-actions">
+                    {currentUser && currentUser.userId === p.ownerId ? (
+                      <button
+                        className="btn-danger-icon"
+                        onClick={() => deleteProperty(p.id)}
+                        title="Delete your property listing"
+                      >
+                        <Trash2 size={16}/>
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          className="btn-outline btn-xs"
+                          onClick={() => openInquiryModal(p)}
+                          title="Contact owner about this listing"
+                        >
+                          <MessageSquare size={13}/> Inquire
+                        </button>
+                        <span className="owner-tag">by {p.ownerName}</span>
+                      </>
+                    )}
+                  </div>
                 </div>
               </article>
             ))}
@@ -399,7 +497,7 @@ function App() {
         <div>
           <span className="eyebrow">LET'S GET YOU MOVING</span>
           <h2>Your next home is a few steps away.</h2>
-          <p>Sign in or create an account to start browsing and listing properties.</p>
+          <p>Sign in or create an account to start browsing, inquiring, and listing properties.</p>
         </div>
         <div className="nav-actions">
           {!currentUser ? (
@@ -422,7 +520,7 @@ function App() {
       </footer>
 
       {/* Auth Modal (Login / Register) */}
-      {modal && modal !== 'createProperty' && (
+      {modal && (modal === 'login' || modal === 'register') && (
         <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setModal(null) }}>
           <section className="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title">
             <button className="modal-close" onClick={() => setModal(null)} aria-label="Close"><X size={20}/></button>
@@ -597,6 +695,89 @@ function App() {
                 {loading ? 'Submitting...' : 'Publish Listing'} <ArrowRight size={17}/>
               </button>
             </form>
+          </section>
+        </div>
+      )}
+
+      {/* Tenant Send Inquiry Modal */}
+      {modal === 'inquiry' && activePropertyForInquiry && (
+        <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setModal(null) }}>
+          <section className="auth-modal" role="dialog" aria-modal="true" aria-labelledby="inq-title">
+            <button className="modal-close" onClick={() => setModal(null)} aria-label="Close"><X size={20}/></button>
+            <span className="eyebrow">CONTACT OWNER</span>
+            <h2 id="inq-title">Send Property Inquiry</h2>
+            <p>Inquire about <b>{activePropertyForInquiry.title}</b> in {activePropertyForInquiry.city}.</p>
+            <form onSubmit={submitInquiry}>
+              <label>Your Message
+                <textarea
+                  rows={4}
+                  value={inquiryText}
+                  onChange={e => setInquiryText(e.target.value)}
+                  required
+                  maxLength={1000}
+                  placeholder="Write your questions or visit requests here..."
+                />
+              </label>
+              {message && <p className="form-message" role="alert">{message}</p>}
+              <button className="btn-dark submit-btn" type="submit" disabled={loading}>
+                {loading ? 'Sending...' : 'Send Inquiry'} <Send size={16}/>
+              </button>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {/* Inquiries Management Modal (Sent or Received) */}
+      {modal === 'viewInquiries' && currentUser && (
+        <div className="modal-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) setModal(null) }}>
+          <section className="auth-modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="inqs-title">
+            <button className="modal-close" onClick={() => setModal(null)} aria-label="Close"><X size={20}/></button>
+            <span className="eyebrow">{currentUser.role === 'OWNER' ? 'OWNER DASHBOARD' : 'TENANT DASHBOARD'}</span>
+            <h2 id="inqs-title">{currentUser.role === 'OWNER' ? 'Inquiries Received' : 'My Inquiries'}</h2>
+            <p>Manage and track responses for property inquiries.</p>
+
+            {inquiries.length > 0 ? (
+              <div className="inquiries-list">
+                {inquiries.map(inq => (
+                  <div key={inq.id} className="inquiry-item">
+                    <div className="inquiry-item-header">
+                      <b>{inq.propertyTitle}</b>
+                      <span className={`status-badge status-${inq.status.toLowerCase()}`}>
+                        {inq.status === 'PENDING' && <Clock size={12}/>}
+                        {inq.status === 'ACCEPTED' && <Check size={12}/>}
+                        {inq.status === 'REJECTED' && <Ban size={12}/>}
+                        {inq.status}
+                      </span>
+                    </div>
+                    <p className="inquiry-msg">"{inq.message}"</p>
+                    <div className="inquiry-meta">
+                      <span>{currentUser.role === 'OWNER' ? `From: ${inq.tenantName} (${inq.tenantEmail})` : `Date: ${new Date(inq.createdAt).toLocaleDateString()}`}</span>
+                      {currentUser.role === 'OWNER' && inq.status === 'PENDING' && (
+                        <div className="inquiry-actions">
+                          <button
+                            className="btn-success-sm"
+                            onClick={() => updateInquiryStatus(inq.id, 'ACCEPTED')}
+                          >
+                            <Check size={14}/> Accept
+                          </button>
+                          <button
+                            className="btn-danger-sm"
+                            onClick={() => updateInquiryStatus(inq.id, 'REJECTED')}
+                          >
+                            <Ban size={14}/> Decline
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">
+                <MessageSquare size={36}/>
+                <p>No inquiries found yet.</p>
+              </div>
+            )}
           </section>
         </div>
       )}

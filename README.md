@@ -8,7 +8,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.0-3178c6.svg)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A production-grade, secure, full-stack rental property management platform built with **Java 21**, **Spring Boot 4**, **PostgreSQL 16**, and **React 19 / TypeScript**. Designed to demonstrate enterprise backend design, stateless JWT security, role-based authorization, database migration hygiene, and automated testing.
+A production-grade, secure, full-stack rental property management platform built with **Java 21**, **Spring Boot 4**, **PostgreSQL 16**, and **React 19 / TypeScript**. Designed to demonstrate enterprise backend design, stateless JWT security, role-based authorization, database migration hygiene, N+1 query elimination, and automated integration testing.
 
 ---
 
@@ -17,12 +17,12 @@ A production-grade, secure, full-stack rental property management platform built
 ```mermaid
 flowchart TD
     Client["Client Browser (React 19 + TypeScript)"]
-    Nginx["Nginx Reverse Proxy (:80)"]
+    Nginx["Nginx Reverse Proxy (:80 / :5173)"]
     Backend["Spring Boot 4 Backend (:8080)"]
     Security["Spring Security (Stateless JWT Filter)"]
-    Service["Service Layer (Property & Auth Services)"]
-    Repo["Spring Data JPA Repositories"]
-    Flyway["Flyway Database Migrations"]
+    Service["Service Layer (Property, Auth & Inquiry Services)"]
+    Repo["Spring Data JPA Repositories (JOIN FETCH projections)"]
+    Flyway["Flyway Database Migrations (V1..V4)"]
     DB[("PostgreSQL 16 Database (:5432)")]
 
     Client -->|HTTP / JSON| Nginx
@@ -42,9 +42,9 @@ flowchart TD
 - **Java 21 (LTS)** — Modern language features including Records, Pattern Matching, and Sealed Classes.
 - **Spring Boot 4.1.1** — Core framework for dependency injection, auto-configuration, and REST APIs.
 - **Spring Security** — Custom stateless authentication filter with HMAC-SHA256 JWT tokens (`io.jsonwebtoken 0.12.6`).
-- **Spring Data JPA & Hibernate 7** — Declarative data access with custom JPQL queries and pagination.
+- **Spring Data JPA & Hibernate 7** — Declarative data access with custom JPQL queries, eager join fetches to prevent N+1 queries, and `@EnableSpringDataWebSupport(VIA_DTO)`.
 - **Jakarta Bean Validation** — Declarative constraints on DTOs (`@NotBlank`, `@DecimalMin`, `@Email`).
-- **Flyway 12** — Versioned database schema migrations with automated startup execution.
+- **Flyway 12** — Versioned database schema migrations (V1 users, V2 properties, V3 search indexes, V4 inquiries) with automated startup execution.
 - **Spring Boot Actuator** — Health check and operational metrics endpoints.
 - **H2 In-Memory Database** — Isolated test database for fast, reliable automated test execution.
 
@@ -52,12 +52,12 @@ flowchart TD
 - **React 19** — Component-based user interface with hooks and strict typing.
 - **TypeScript 6** — End-to-end type safety aligning with backend DTOs.
 - **Vite 8** — Fast modern frontend build tool and development server.
-- **Axios** — HTTP client with centralized bearer token injection.
+- **Axios** — HTTP client with centralized bearer token injection and interceptors.
 - **Lucide React** — Modern, accessible SVG icon library.
-- **Oxlint** — High-performance Rust-based JavaScript/TypeScript linter.
+- **Oxlint** — High-performance Rust-based JavaScript/TypeScript linter (0 errors, 0 warnings).
 
 ### DevOps & Infrastructure
-- **PostgreSQL 16** — Relational database with composite indexing, foreign key constraints, and check rules.
+- **PostgreSQL 16** — Relational database with composite indexing, foreign key cascades, and check rules.
 - **Docker & Docker Compose** — Multi-stage builds and isolated container orchestration.
 - **Nginx Alpine** — Static asset server and API reverse proxy with Gzip compression.
 - **GitHub Actions** — Continuous Integration pipeline testing both backend and frontend on every commit.
@@ -81,10 +81,15 @@ flowchart TD
    - Property creation, update, and deletion restricted exclusively to verified `OWNER` accounts.
    - Resource-level ownership checks preventing owners from modifying listings belonging to other users.
 
-4. **Production Resiliency**
+4. **Property Inquiries & Communication Workflow**
+   - Tenants can submit direct inquiries to property owners.
+   - Owners receive inquiries on a dedicated dashboard and can accept or decline them with one click.
+   - Tenants track real-time status of their sent inquiries (`PENDING`, `ACCEPTED`, `REJECTED`).
+
+5. **Production Resiliency**
    - Centralized `@RestControllerAdvice` error handler providing clean, structured JSON error responses.
    - Strict input validation with informative field-level error messages.
-   - Cross-Origin Resource Sharing (CORS) configured for trusted frontend origins.
+   - Cross-Origin Resource Sharing (CORS) configured via environment variables for trusted frontend origins.
 
 ---
 
@@ -107,6 +112,10 @@ flowchart TD
 | `POST` | `/api/v1/properties` | Create a new property listing | `OWNER` |
 | `PUT` | `/api/v1/properties/{id}` | Update listing (must be resource owner) | `OWNER` |
 | `DELETE` | `/api/v1/properties/{id}` | Delete listing (must be resource owner) | `OWNER` |
+| `POST` | `/api/v1/inquiries/property/{propertyId}` | Submit inquiry for a property | `TENANT` |
+| `GET` | `/api/v1/inquiries/sent` | View inquiries sent by tenant | `TENANT` |
+| `GET` | `/api/v1/inquiries/received` | View inquiries received for owner's properties | `OWNER` |
+| `PATCH` | `/api/v1/inquiries/{id}/status` | Accept or reject an inquiry | `OWNER` |
 
 ---
 
@@ -136,7 +145,7 @@ Copy-Item .env.example .env
 cd D:\Projects\rentflow\backend
 .\mvnw.cmd spring-boot:run
 ```
-The backend starts on `http://localhost:8080`. Flyway automatically creates the database schema on startup.
+The backend starts on `http://localhost:8080`. Flyway automatically executes migrations V1 through V4 on startup.
 
 ### 4. Run the Frontend
 ```powershell
@@ -150,7 +159,7 @@ Open `http://localhost:5173` in your browser.
 
 ## 🧪 Automated Testing
 
-RentFlow 2.0 includes 37 automated tests covering unit logic and full Spring Boot MockMvc integration journeys:
+RentFlow 2.0 includes 44 automated tests covering unit logic and full Spring Boot MockMvc integration journeys:
 
 ```powershell
 # Run the complete backend test suite
@@ -159,10 +168,11 @@ cd D:\Projects\rentflow\backend
 ```
 
 ### Test Coverage Highlights:
-- **`AuthControllerIT`**: Registration validation, duplicate email detection, admin escalation prevention, password verification, JWT issuance, and `/me` authentication.
-- **`PropertyControllerIT`**: Anonymous search, pagination, city filtering, owner property creation, tenant prohibition, resource-level ownership protection (cannot edit/delete another owner's property).
-- **`JwtServiceTest`**: Cryptographic signature validation, key tampering detection, expired token rejection, claim extraction.
-- **`HealthControllerIT`**: Unauthenticated health and readiness probes.
+- **`AuthControllerIT` (14 tests)**: Registration validation, duplicate email detection, admin escalation prevention, password verification, JWT issuance, and `/me` authentication.
+- **`PropertyControllerIT` (15 tests)**: Anonymous search, pagination, city filtering, owner property creation, tenant prohibition, resource-level ownership protection (cannot edit/delete another owner's property).
+- **`InquiryControllerIT` (7 tests)**: Tenant inquiry submission, owner inquiry viewing and status management (`ACCEPTED`/`REJECTED`), owner cross-property isolation, unauthenticated blocking.
+- **`JwtServiceTest` (6 tests)**: Cryptographic signature validation, key tampering detection, expired token rejection, claim extraction.
+- **`HealthControllerIT` (2 tests)**: Unauthenticated health and readiness probes.
 
 ### Frontend Quality Checks:
 ```powershell
@@ -197,8 +207,8 @@ Once running:
 
 ## 💡 Engineering Highlights for Technical Interviews
 
+- **N+1 Query Elimination**: Handled via `JOIN FETCH` queries in `PropertyRepository` and `InquiryRepository` alongside distinct `countQuery` definitions for Spring Data `Pageable` queries.
 - **Defense-in-Depth Authorization**: Handled both at the Spring Security filter chain level (URL patterns and roles) and inside the service layer (`requireOwnership(property, owner)`), ensuring multi-tenant data isolation.
-- **N+1 Query Avoidance**: Foreign key mapping on `Property -> User` with `FetchType.LAZY` and streamlined DTO projections (`PropertyResponse.from(p)`).
-- **Safe Database Migrations**: Schema evolution managed through idempotent Flyway scripts (`V1__create_users_table.sql`, `V2__create_properties_table.sql`) with explicit foreign key cascades and composite indexes.
+- **Safe Database Schema Evolution**: Schema evolution managed through four sequential Flyway migrations (`V1` users, `V2` properties, `V3` range and composite indexes, `V4` inquiries) with foreign key cascades and check constraints.
 - **Stateless Session Strategy**: Completely stateless session management (`SessionCreationPolicy.STATELESS`), allowing horizontal scaling behind load balancers without sticky sessions.
-- **Fail-Fast Error Handling**: Global exception advisor transforms validation anomalies and business errors into RFC 7807-compatible error structures.
+- **Fail-Fast Error Handling**: Global exception advisor transforms validation anomalies and business errors into structured RFC 7807 error responses.
