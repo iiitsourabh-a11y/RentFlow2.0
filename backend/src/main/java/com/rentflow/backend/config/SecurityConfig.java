@@ -69,6 +69,11 @@ public class SecurityConfig {
                     "/actuator/health",
                     "/error"
                 ).permitAll()
+                .requestMatchers(
+                    org.springframework.http.HttpMethod.GET,
+                    "/api/v1/properties",
+                    "/api/v1/properties/{id}"
+                ).permitAll()
                 .anyRequest().authenticated()
             )
             .addFilterBefore(
