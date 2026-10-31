@@ -20,7 +20,28 @@ public class JwtService {
         @Value("${app.jwt.secret}") String secret,
         @Value("${app.jwt.expiration-ms:3600000}") long expirationMillis
     ) {
-        this.key = Keys.hmacShaKeyFor(Decoders.BASE64.decode(secret));
+        if (secret == null || secret.trim().isEmpty()) {
+            throw new IllegalStateException(
+                "JWT secret must not be blank. Configure app.jwt.secret via JWT_SECRET environment variable."
+            );
+        }
+
+        byte[] keyBytes;
+        try {
+            keyBytes = Decoders.BASE64.decode(secret.trim());
+        } catch (Exception e) {
+            throw new IllegalArgumentException(
+                "JWT secret must be a valid Base64 encoded string: " + e.getMessage(), e
+            );
+        }
+
+        if (keyBytes.length < 32) {
+            throw new IllegalArgumentException(
+                "JWT secret key must be at least 256 bits (32 bytes) for HMAC-SHA256. Provided length: " + keyBytes.length + " bytes."
+            );
+        }
+
+        this.key = Keys.hmacShaKeyFor(keyBytes);
         this.expirationMillis = expirationMillis;
     }
 

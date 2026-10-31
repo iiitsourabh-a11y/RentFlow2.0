@@ -1,0 +1,10 @@
+# Optional Docker Compose Override for Local Development & Debugging
+# To enable, copy this file to docker-compose.override.yml:
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#
+# Docker Compose merges docker-compose.override.yml automatically.
+
+services:
+  backend:
+    ports:
+      - "127.0.0.1:8080:8080"

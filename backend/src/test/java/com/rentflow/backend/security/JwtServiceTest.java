@@ -101,4 +101,27 @@ class JwtServiceTest {
         JwtService service = createService(TEST_SECRET, 7200000);
         assertEquals(7200000, service.getExpirationMillis());
     }
+
+    @Test
+    @DisplayName("null or blank secret throws IllegalStateException")
+    void blankSecretThrows() {
+        assertThrows(IllegalStateException.class, () -> new JwtService(null, 3600000));
+        assertThrows(IllegalStateException.class, () -> new JwtService("   ", 3600000));
+    }
+
+    @Test
+    @DisplayName("secret with fewer than 256 bits throws IllegalArgumentException")
+    void shortSecretThrows() {
+        String shortBase64 = Base64.getEncoder().encodeToString("short-secret".getBytes());
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+            () -> new JwtService(shortBase64, 3600000));
+        assertTrue(ex.getMessage().contains("at least 256 bits"));
+    }
+
+    @Test
+    @DisplayName("invalid base64 secret throws IllegalArgumentException")
+    void invalidBase64SecretThrows() {
+        assertThrows(IllegalArgumentException.class,
+            () -> new JwtService("not-valid-base-64!!!@@#$%", 3600000));
+    }
 }
